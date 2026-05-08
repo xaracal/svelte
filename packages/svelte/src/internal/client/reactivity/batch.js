@@ -344,26 +344,28 @@ export class Batch {
 			for (const [e, t] of this.#skipped_branches) {
 				reset_branch(e, t);
 			}
-		} else {
-			if (this.#pending === 0) {
-				batches.delete(this);
+
+			if (updates.length > 0) {
+				/** @type {Batch} */ (/** @type {unknown} */ (current_batch)).#process();
 			}
 
-			// clear effects. Those that are still needed will be rescheduled through unskipping the skipped branches.
-			this.#dirty_effects.clear();
-			this.#maybe_dirty_effects.clear();
-
-			// append/remove branches
-			for (const fn of this.#commit_callbacks) fn(this);
-			this.#commit_callbacks.clear();
-
-			previous_batch = this;
-			flush_queued_effects(render_effects);
-			flush_queued_effects(effects);
-			previous_batch = null;
-
-			this.#deferred?.resolve();
+			return;
 		}
+
+		// clear effects. Those that are still needed will be rescheduled through unskipping the skipped branches.
+		this.#dirty_effects.clear();
+		this.#maybe_dirty_effects.clear();
+
+		// append/remove branches
+		for (const fn of this.#commit_callbacks) fn(this);
+		this.#commit_callbacks.clear();
+
+		previous_batch = this;
+		flush_queued_effects(render_effects);
+		flush_queued_effects(effects);
+		previous_batch = null;
+
+		this.#deferred?.resolve();
 
 		var next_batch = /** @type {Batch | null} */ (/** @type {unknown} */ (current_batch));
 
@@ -371,7 +373,7 @@ export class Batch {
 		// else we could start flushing a new batch and then, if it has pending work, rebase it right afterwards, which is wrong.
 		// In sync mode flushSync can cause #commit to wrongfully think that there needs to be a rebase, so we only do it in async mode
 		// TODO fix the underlying cause, otherwise this will likely regress when non-async mode is removed
-		if (async_mode_flag && !batches.has(this)) {
+		if (async_mode_flag && this.#pending === 0) {
 			this.#commit();
 			// Rebases can activate other batches or null it out, therefore restore the new one here
 			current_batch = next_batch;
@@ -530,6 +532,8 @@ export class Batch {
 	}
 
 	#commit() {
+		batches.delete(this);
+
 		// If there are other pending batches, they now need to be 'rebased' —
 		// in other words, we re-run block/async effects with the newly
 		// committed state, unless the batch in question has a more
